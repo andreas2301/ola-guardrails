@@ -24,7 +24,11 @@ create_ref() {
     local repo_id="$1"
     local revision="$2"
     local normalized
-    normalized=$(echo "${repo_id}" | tr '/' '-')
+    # HF cache dirs use a DOUBLE dash between org and name (repo_id.replace('/', '--')).
+    # `tr '/' '-'` produced a SINGLE dash, so refs/main landed in a phantom dir and the
+    # real models--<org>--<name> snapshot had no ref → from_pretrained(repo_id) could not
+    # resolve `main` offline (LocalEntryNotFoundError). Bare names (no '/') were unaffected.
+    normalized=${repo_id//\//--}
     mkdir -p "${HF_CACHE_DIR}/models--${normalized}/refs"
     printf '%s' "${revision}" > "${HF_CACHE_DIR}/models--${normalized}/refs/main"
 }
