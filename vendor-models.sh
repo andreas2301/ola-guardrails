@@ -30,21 +30,28 @@ create_ref() {
 }
 
 # gpt2-large is used by the NeMo perplexity heuristics.
-echo "Vendoring gpt2-large (rev ${GPT2_REVISION})..."
+# Exclude the non-safetensors weight formats: transformers auto-prefers model.safetensors
+# (present), and the engine loads with safe_serialization. Without this --exclude the whole
+# repo (tf/rust/flax/bin/onnx/coreml/64-bit ≈ 15GB of dead weight) is pulled, bloating the
+# image + every reinstall. Keeps model.safetensors + all config/tokenizer/vocab/merges.
 .venv/bin/huggingface-cli download \
     gpt2-large \
     --revision "${GPT2_REVISION}" \
     --cache-dir "${HF_CACHE_DIR}" \
-    --local-dir-use-symlinks False
+    --local-dir-use-symlinks False \
+    --exclude "*.bin" "*.h5" "*.ot" "*.msgpack" "onnx/*" "coreml/*" "64/*"
 create_ref "gpt2-large" "${GPT2_REVISION}"
 
 # Snowflake embedding model is required by the NemoGuard snowflake.onnx classifier.
+# _PatchedSnowflakeEmbed forces safe_serialization=True (model.safetensors), so drop the
+# other weight formats. Keeps *.py (trust_remote_code modeling), config, tokenizer, vocab.
 echo "Vendoring Snowflake/snowflake-arctic-embed-m-long (rev ${SNOWFLAKE_REVISION})..."
 .venv/bin/huggingface-cli download \
     Snowflake/snowflake-arctic-embed-m-long \
     --revision "${SNOWFLAKE_REVISION}" \
     --cache-dir "${HF_CACHE_DIR}" \
-    --local-dir-use-symlinks False
+    --local-dir-use-symlinks False \
+    --exclude "*.bin" "*.h5" "*.ot" "*.msgpack" "onnx/*" "coreml/*"
 create_ref "Snowflake/snowflake-arctic-embed-m-long" "${SNOWFLAKE_REVISION}"
 
 # NemoGuard JailbreakDetect snowflake.onnx random-forest classifier.
