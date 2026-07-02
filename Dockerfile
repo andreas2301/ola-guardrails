@@ -41,8 +41,10 @@ COPY ola_guardrails/ /app/ola_guardrails/
 # Build-stage smoke: ensure the package imports cleanly before committing the image.
 RUN python -c 'import ola_guardrails.main'
 
-# Run as a non-root user.
-RUN useradd -m -u 1000 guardrails && chown -R guardrails:guardrails /app
+# Run as a non-root user. uid 15101 is a dedicated, collision-free id (distinct from
+# ola-llmguard's 15100 so neither engine can read the other's host-side key.pem; uid 1000
+# collides with agent-routine/n8n).
+RUN useradd -m -u 15101 guardrails && chown -R guardrails:guardrails /app
 USER guardrails
 
 EXPOSE 8443
