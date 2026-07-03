@@ -3,3 +3,4 @@ __pycache__/
 .pytest_cache/
 vendored-models/
 wheels/
+models.sha256
