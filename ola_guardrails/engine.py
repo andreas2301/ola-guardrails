@@ -175,10 +175,30 @@ class NemoGuardrailsEngine(GuardrailsEngine):
         self._classifier = classifier
         self._lock = threading.Lock()
 
-    def check_input(self, text: str) -> tuple[bool, str]:
-        """Run NeMo jailbreak heuristics and the NemoGuard classifier.
+    def _run_classifier(self, text: str) -> tuple[bool, str]:
+        """Shared NemoGuard content-classifier check reused by BOTH rails.
 
-        A positive signal from any detector blocks the input.
+        This is the "reuse the classifier on output" seam: the snowflake.onnx
+        classifier scores *content* (not prompt structure), so the same verdict
+        is valid whether ``text`` is an incoming prompt or an outgoing response.
+        Both :meth:`check_input` and :meth:`check_output` funnel through here — no
+        second model is loaded.
+
+        The caller MUST already hold ``self._lock`` (it is a plain, non-reentrant
+        ``threading.Lock``); this method does not acquire it.
+        """
+        _classification, score = self._classifier(text)
+        if score > self._CLASSIFIER_THRESHOLD:
+            return (False, "jailbreak")
+        return (True, "")
+
+    def check_input(self, text: str) -> tuple[bool, str]:
+        """Run the input rail: input-only jailbreak heuristics + shared classifier.
+
+        A positive signal from any detector blocks the input. The two perplexity
+        heuristics detect adversarial PROMPT structure (gibberish length /
+        perplexity, adversarial prefix/suffix), so they are input-only; the
+        NemoGuard classifier (shared with the output rail) scores content.
         """
         with self._lock:
             lp = self._heuristics.check_jailbreak_length_per_perplexity(
@@ -193,16 +213,17 @@ class NemoGuardrailsEngine(GuardrailsEngine):
             if ps.get("jailbreak"):
                 return (False, "jailbreak")
 
-            _classification, score = self._classifier(text)
-            if score > self._CLASSIFIER_THRESHOLD:
-                return (False, "jailbreak")
-
-        return (True, "")
+            return self._run_classifier(text)
 
     def check_output(self, text: str) -> tuple[bool, str]:
-        """Output self-check requires a dedicated check model (not implemented).
+        """Run the output rail by REUSING the shared classifier over ``text``.
 
-        Raises NotImplementedError so the API returns 501 rather than silently
-        allowing unchecked output.
+        The output rail runs the SAME NemoGuard content classifier the input rail
+        uses — no dedicated output model is loaded (this appliance is airgapped
+        and CPU-first). The input-only perplexity *jailbreak* heuristics are NOT
+        applied to a response: they score adversarial prompt structure, not
+        unsafe output content. Returns the same ``(allowed, reason)`` verdict
+        shape as :meth:`check_input`.
         """
-        raise NotImplementedError("output self-check needs a dedicated check model")
+        with self._lock:
+            return self._run_classifier(text)
